@@ -28,6 +28,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "pnpm build",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

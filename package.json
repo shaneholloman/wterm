@@ -14,6 +14,8 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx}\" --ignore-path .gitignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx}\" --ignore-path .gitignore",
     "lint": "turbo run lint",
+    "publish-packages": "pnpm build && pnpm --filter './packages/@wterm/*' publish --no-git-checks",
+    "sync-versions": "node scripts/sync-versions.mjs",
     "type-check": "turbo run type-check"
   },
   "devDependencies": {

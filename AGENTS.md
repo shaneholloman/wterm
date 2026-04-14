@@ -38,3 +38,24 @@ For any user-facing change (new feature, option, API change, bug fix, etc.), upd
 - **Page titles** (`apps/docs/src/lib/page-titles.ts`): Update if adding new pages.
 - **Example READMEs**: Each example under `examples/` must have a `README.md` covering what it does, setup steps, how it works, and key files.
 - **Code examples in docs**: Ensure import paths match the current package structure (e.g. `@wterm/dom` for vanilla JS, `@wterm/react` for React).
+
+## Releasing
+
+Releases are manual, single-PR affairs. The maintainer controls the changelog voice and format. All `@wterm/*` packages share a single version number.
+
+To prepare a release:
+
+1. Create a branch (e.g. `prepare-v0.2.0`)
+2. Bump the version in `packages/@wterm/core/package.json`
+3. Run `pnpm sync-versions` to update all other `@wterm/*` packages
+4. Write the changelog entry in `CHANGELOG.md`, wrapped in `<!-- release:start -->` and `<!-- release:end -->` markers
+5. Remove the `<!-- release:start -->` and `<!-- release:end -->` markers from the previous release entry (only the latest release should have markers)
+6. Open a PR and merge to `main`
+
+To publish (run locally after merging):
+
+```bash
+pnpm publish-packages
+```
+
+This builds all packages and publishes every `@wterm/*` package to npm.
