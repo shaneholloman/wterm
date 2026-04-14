@@ -48,10 +48,10 @@ export default function Home() {
     const shell = new BashShell({
       files: INITIAL_FILES,
       greeting: [
-        "\x1b[1;36mwterm\x1b[0m — terminal emulator for the web",
-        "\x1b[2mPowered by just-bash · running entirely in the browser\x1b[0m",
+        "wterm — terminal emulator for the web",
+        "Powered by just-bash · running entirely in the browser",
         "",
-        "Type \x1b[1mhelp\x1b[0m for commands, or try: \x1b[33mls\x1b[0m, \x1b[33mcat README.md\x1b[0m, \x1b[33mbash examples/hello.sh\x1b[0m",
+        "Type help for commands, or try: ls, cat README.md, bash examples/hello.sh",
         "",
       ],
     });

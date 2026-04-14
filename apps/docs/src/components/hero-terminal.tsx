@@ -74,9 +74,9 @@ function HeroTerminal({
     const shell = new BashShell({
       files: INITIAL_FILES,
       greeting: [
-        "\x1b[1;36mwterm\x1b[0m — terminal emulator for the web",
+        "wterm — terminal emulator for the web",
         "",
-        "Try: \x1b[33mls\x1b[0m, \x1b[33mcat README.md\x1b[0m, \x1b[33mecho hello\x1b[0m",
+        "Try: ls, cat README.md, echo hello",
         "",
       ],
       network: { dangerouslyAllowFullInternetAccess: true },
