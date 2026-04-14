@@ -76,7 +76,7 @@ function HeroTerminal({
       greeting: [
         "wterm — terminal emulator for the web",
         "",
-        "Try: ls, cat README.md, echo hello",
+        "\x1b[2mTry: ls, cat README.md, echo hello\x1b[0m",
         "",
       ],
       network: { dangerouslyAllowFullInternetAccess: true },
