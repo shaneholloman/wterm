@@ -2,7 +2,6 @@
   "name": "@wterm/docs",
   "version": "0.0.0",
   "private": true,
-  "type": "module",
   "scripts": {
     "predev": "command -v portless >/dev/null 2>&1 || (echo '\\nportless is required but not installed. Run: npm i -g portless\\nSee: https://github.com/vercel-labs/portless\\n' && exit 1)",
     "dev": "portless docs.wterm next dev --turbopack",
