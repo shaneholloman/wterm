@@ -14,7 +14,11 @@ npm install @wterm/dom @wterm/react
 npm install @wterm/dom
 ```
 
-You also need to serve the `wterm.wasm` binary as a static asset in your application. Build it from source with Zig, or grab a prebuilt release.
+You also need to serve the `wterm.wasm` binary as a static asset in your application. The prebuilt binary ships with `@wterm/core`:
+
+```bash
+cp node_modules/@wterm/core/wasm/wterm.wasm public/wterm.wasm
+```
 
 ## Quick Start
 

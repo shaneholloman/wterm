@@ -1,6 +1,7 @@
 zig-out/
 .zig-cache/
 *.wasm
+!packages/@wterm/core/wasm/wterm.wasm
 .DS_Store
 node_modules/
 dist/

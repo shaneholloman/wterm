@@ -10,10 +10,12 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    }
+    },
+    "./wasm": "./wasm/wterm.wasm"
   },
   "files": [
-    "dist"
+    "dist",
+    "wasm"
   ],
   "scripts": {
     "build": "tsc",
