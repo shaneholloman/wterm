@@ -48,6 +48,7 @@ export default function LocalTerminal() {
         onData={handleData}
         onResize={handleResize}
         className="flex-1"
+        style={{ borderRadius: 0, boxShadow: "none" }}
       />
     </div>
   );
