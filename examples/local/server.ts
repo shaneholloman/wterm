@@ -22,13 +22,24 @@ function cleanEnv(): Record<string, string> {
 function handlePTYConnection(ws: WebSocket) {
   const shell = process.env.SHELL || "/bin/zsh";
 
-  const ptyProcess = pty.spawn(shell, ["-l"], {
-    name: "xterm-256color",
-    cols: 80,
-    rows: 24,
-    cwd: process.env.HOME || "/",
-    env: cleanEnv(),
-  });
+  let ptyProcess: pty.IPty;
+  try {
+    ptyProcess = pty.spawn(shell, ["-l"], {
+      name: "xterm-256color",
+      cols: 80,
+      rows: 24,
+      cwd: process.env.HOME || "/",
+      env: cleanEnv(),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Failed to spawn PTY: ${msg}`);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(`\r\n\x1b[31mFailed to spawn shell: ${msg}\x1b[0m\r\n`);
+      ws.close();
+    }
+    return;
+  }
 
   ptyProcess.onData((data) => {
     if (ws.readyState === WebSocket.OPEN) {
