@@ -255,8 +255,7 @@ export class Renderer {
         runText = "";
         runStart = col + 1;
       } else {
-        const ch =
-          inBounds && cp >= 32 ? String.fromCodePoint(cp) : " ";
+        const ch = inBounds && cp >= 32 ? String.fromCodePoint(cp) : " ";
         const style = inBounds
           ? buildCellStyle(cell.fg, cell.bg, cell.flags)
           : "";
