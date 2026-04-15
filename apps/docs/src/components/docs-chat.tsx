@@ -19,8 +19,25 @@ const DESKTOP_DEFAULT_WIDTH = 400;
 const DESKTOP_MIN_WIDTH = 300;
 const DESKTOP_MAX_WIDTH = 700;
 
-function setCookie(name: string, value: string) {
+const COOKIE_CHANGE = "docs-chat-cookie";
+
+function writeCookie(name: string, value: string) {
   document.cookie = `${name}=${encodeURIComponent(value)};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
+  window.dispatchEvent(new Event(COOKIE_CHANGE));
+}
+
+function readCookie(name: string): string | undefined {
+  const match = document.cookie.match(
+    new RegExp(
+      "(?:^|; )" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "=([^;]*)",
+    ),
+  );
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function subscribeCookies(cb: () => void) {
+  window.addEventListener(COOKIE_CHANGE, cb);
+  return () => window.removeEventListener(COOKIE_CHANGE, cb);
 }
 
 const subscribeNoop = () => () => {};
@@ -435,39 +452,58 @@ function ChatTerminal() {
 // DocsChat — panel wrapper (aside on desktop, Sheet on mobile)
 // ---------------------------------------------------------------------------
 
-export function DocsChat({
-  defaultOpen = false,
-  defaultWidth = DESKTOP_DEFAULT_WIDTH,
-}: {
-  defaultOpen?: boolean;
-  defaultWidth?: number;
-}) {
+function useCookieState(
+  name: string,
+  serverDefault: string,
+): [string, (v: string) => void] {
+  const getSnapshot = useCallback(
+    () => readCookie(name) ?? serverDefault,
+    [name, serverDefault],
+  );
+  const getServerSnapshot = useCallback(() => serverDefault, [serverDefault]);
+  const value = useSyncExternalStore(
+    subscribeCookies,
+    getSnapshot,
+    getServerSnapshot,
+  );
+  const setValue = useCallback((v: string) => writeCookie(name, v), [name]);
+  return [value, setValue];
+}
+
+export function DocsChat() {
   const isDesktop = useMediaQuery("(min-width: 640px)");
   const hasMounted = useMounted();
 
-  const [open, setOpen] = useState(defaultOpen);
-  const [desktopWidth, setDesktopWidth] = useState(
-    Math.min(DESKTOP_MAX_WIDTH, Math.max(DESKTOP_MIN_WIDTH, defaultWidth)),
+  const [openStr, setOpenStr] = useCookieState("docs-chat-open", "false");
+  const [widthStr, setWidthStr] = useCookieState(
+    "docs-chat-width",
+    String(DESKTOP_DEFAULT_WIDTH),
   );
+
+  const open = openStr === "true";
+  const desktopWidth = Math.min(
+    DESKTOP_MAX_WIDTH,
+    Math.max(DESKTOP_MIN_WIDTH, Number(widthStr) || DESKTOP_DEFAULT_WIDTH),
+  );
+
+  const [hasBeenOpened, setHasBeenOpened] = useState(false);
+  const showTerminal = open || hasBeenOpened;
   const isDraggingRef = useRef(false);
-  const [hasBeenOpened, setHasBeenOpened] = useState(defaultOpen);
 
   const updateOpen = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
-      setOpen((prev) => {
-        const val = typeof next === "function" ? next(prev) : next;
-        setCookie("docs-chat-open", String(val));
-        if (val) setHasBeenOpened(true);
-        return val;
-      });
+      const current = readCookie("docs-chat-open") === "true";
+      const val = typeof next === "function" ? next(current) : next;
+      setOpenStr(String(val));
+      if (val) setHasBeenOpened(true);
     },
-    [],
+    [setOpenStr],
   );
 
-  const updateDesktopWidth = useCallback((next: number) => {
-    setDesktopWidth(next);
-    setCookie("docs-chat-width", String(next));
-  }, []);
+  const updateDesktopWidth = useCallback(
+    (next: number) => setWidthStr(String(next)),
+    [setWidthStr],
+  );
 
   // Keyboard: Cmd/Ctrl+I toggles panel, Escape closes desktop panel
   useEffect(() => {
@@ -582,7 +618,7 @@ export function DocsChat({
           className="absolute top-0 bottom-0 left-0 w-1.5 cursor-col-resize hover:bg-neutral-300/30 dark:hover:bg-neutral-600/30 active:bg-neutral-300/50 dark:active:bg-neutral-600/50 transition-colors z-10"
         />
         <div className="flex flex-col flex-1 min-w-0">
-          {hasBeenOpened && chatPanel}
+          {showTerminal && chatPanel}
         </div>
       </aside>
 
