@@ -19,7 +19,7 @@ Low-level interface to the Zig/WASM terminal state machine.
 ```ts
 import { WasmBridge } from "@wterm/core";
 
-const bridge = await WasmBridge.load("/wterm.wasm");
+const bridge = await WasmBridge.load();
 bridge.init(80, 24);
 bridge.writeString("Hello, world!\r\n");
 
@@ -29,7 +29,7 @@ const cursor = bridge.getCursor();  // { row, col, visible }
 
 | Method | Description |
 |---|---|
-| `WasmBridge.load(url?)` | Load WASM binary and return a new bridge instance |
+| `WasmBridge.load(url?)` | Load WASM binary and return a new bridge instance. Uses the embedded binary when no URL is given. |
 | `init(cols, rows)` | Initialize the terminal grid |
 | `writeString(str)` | Write a UTF-8 string to the terminal |
 | `writeRaw(data: Uint8Array)` | Write raw bytes to the terminal |

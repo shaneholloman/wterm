@@ -14,11 +14,7 @@ npm install @wterm/dom @wterm/react
 npm install @wterm/dom
 ```
 
-You also need to serve the `wterm.wasm` binary as a static asset in your application. The prebuilt binary ships with `@wterm/core`:
-
-```bash
-cp node_modules/@wterm/core/wasm/wterm.wasm public/wterm.wasm
-```
+The WASM binary is embedded in the package — no extra setup required.
 
 ## Quick Start
 
@@ -34,7 +30,6 @@ function App() {
   return (
     <Terminal
       ref={ref}
-      wasmUrl="/wterm.wasm"
       onData={(data) => write(data)}
     />
   );
@@ -50,13 +45,24 @@ import "@wterm/dom/css";
 const term = new WTerm(document.getElementById("terminal"), {
   cols: 80,
   rows: 24,
-  wasmUrl: "/wterm.wasm",
   onData(data) {
     term.write(data);
   },
 });
 
 await term.init();
+```
+
+## Serving WASM separately
+
+By default the ~12 KB WASM binary is loaded from the JS bundle. To serve it as a separate static file instead (for caching or CDN), copy it from the package and pass `wasmUrl`:
+
+```bash
+cp node_modules/@wterm/core/wasm/wterm.wasm public/wterm.wasm
+```
+
+```tsx
+<Terminal wasmUrl="/wterm.wasm" />
 ```
 
 ## Building the WASM Binary

@@ -20,7 +20,6 @@ function App() {
   return (
     <Terminal
       ref={ref}
-      wasmUrl="/wterm.wasm"
       onData={(data) => write(data)}
     />
   );
@@ -33,7 +32,7 @@ function App() {
 |---|---|---|---|
 | `cols` | `number` | `80` | Initial column count |
 | `rows` | `number` | `24` | Initial row count |
-| `wasmUrl` | `string` | `"wterm.wasm"` | URL to the WASM binary |
+| `wasmUrl` | `string` | — | Optional URL to serve the WASM binary separately (embedded by default) |
 | `theme` | `string` | — | Theme name (`"solarized-dark"`, `"monokai"`, `"light"`) |
 | `autoResize` | `boolean` | `false` | Auto-resize based on container |
 | `cursorBlink` | `boolean` | `false` | Enable cursor blinking animation |
@@ -86,7 +85,7 @@ Built-in themes: `solarized-dark`, `monokai`, `light`. Define custom themes with
 
 ## Next.js
 
-For Next.js, add `@wterm/dom` and `@wterm/react` to `transpilePackages` in your config, and place the WASM file in `public/`:
+For Next.js, add `@wterm/dom` and `@wterm/react` to `transpilePackages` in your config:
 
 ```js
 // next.config.mjs

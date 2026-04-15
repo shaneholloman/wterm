@@ -8,8 +8,6 @@ React component for [wterm](https://github.com/vercel-labs/wterm) — a terminal
 npm install @wterm/dom @wterm/react
 ```
 
-You also need to serve the `wterm.wasm` binary as a static asset (e.g. in `public/` for Next.js).
-
 ## Usage
 
 ```tsx
@@ -22,12 +20,13 @@ function App() {
   return (
     <Terminal
       ref={ref}
-      wasmUrl="/wterm.wasm"
       onData={(data) => write(data)}
     />
   );
 }
 ```
+
+The WASM binary is embedded in the package — no extra setup required. To serve it separately instead, pass `wasmUrl`.
 
 ## `<Terminal>` Props
 
@@ -35,7 +34,7 @@ function App() {
 |---|---|---|---|
 | `cols` | `number` | `80` | Initial column count |
 | `rows` | `number` | `24` | Initial row count |
-| `wasmUrl` | `string` | `"wterm.wasm"` | URL to the WASM binary |
+| `wasmUrl` | `string` | — | Optional URL to serve the WASM binary separately (embedded by default) |
 | `theme` | `string` | — | Theme name (e.g. `"solarized-dark"`, `"monokai"`, `"light"`) |
 | `autoResize` | `boolean` | `false` | Auto-resize based on container dimensions |
 | `cursorBlink` | `boolean` | `false` | Enable cursor blinking animation |

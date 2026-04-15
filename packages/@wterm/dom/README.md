@@ -10,8 +10,6 @@ Re-exports everything from `@wterm/core`, so this is the only package you need f
 npm install @wterm/dom
 ```
 
-You also need to serve the `wterm.wasm` binary as a static asset in your application.
-
 ## Usage
 
 ```html
@@ -24,7 +22,6 @@ You also need to serve the `wterm.wasm` binary as a static asset in your applica
   const term = new WTerm(document.getElementById("terminal"), {
     cols: 80,
     rows: 24,
-    wasmUrl: "/wterm.wasm",
     onData(data) {
       term.write(data);
     },
@@ -36,6 +33,8 @@ You also need to serve the `wterm.wasm` binary as a static asset in your applica
   await term.init();
 </script>
 ```
+
+The WASM binary is embedded in the package — no extra setup required. To serve it separately instead, pass `wasmUrl`.
 
 ## API
 
@@ -53,7 +52,7 @@ new WTerm(element: HTMLElement, options?: WTermOptions)
 |---|---|---|---|
 | `cols` | `number` | `80` | Initial column count |
 | `rows` | `number` | `24` | Initial row count |
-| `wasmUrl` | `string` | `"wterm.wasm"` | URL to the WASM binary |
+| `wasmUrl` | `string` | — | Optional URL to serve the WASM binary separately (embedded by default) |
 | `autoResize` | `boolean` | `true` | Auto-resize based on container dimensions |
 | `cursorBlink` | `boolean` | `false` | Enable cursor blinking animation |
 | `onData` | `(data: string) => void` | — | Called when the terminal produces data (user input or host response) |
@@ -77,7 +76,7 @@ Connect to a PTY backend over WebSocket (re-exported from `@wterm/core`).
 ```ts
 import { WTerm, WebSocketTransport } from "@wterm/dom";
 
-const term = new WTerm(el, { cols: 80, rows: 24 });
+const term = new WTerm(el, { cols: 80, rows: 24, wasmUrl: "/wterm.wasm" });
 await term.init();
 
 const ws = new WebSocketTransport({

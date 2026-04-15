@@ -20,7 +20,7 @@ export class WTerm {
   bridge: WasmBridge | null = null;
   autoResize: boolean;
 
-  private wasmUrl: string;
+  private wasmUrl: string | undefined;
   private renderer: Renderer | null = null;
   private input: InputHandler | null = null;
   private rafId: number | null = null;
@@ -37,7 +37,7 @@ export class WTerm {
 
   constructor(element: HTMLElement, options: WTermOptions = {}) {
     this.element = element;
-    this.wasmUrl = options.wasmUrl || "wterm.wasm";
+    this.wasmUrl = options.wasmUrl;
     this.cols = options.cols || 80;
     this.rows = options.rows || 24;
     this.autoResize = options.autoResize !== false;

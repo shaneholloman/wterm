@@ -20,7 +20,6 @@ npm install @wterm/dom
   const term = new WTerm(document.getElementById("terminal"), {
     cols: 80,
     rows: 24,
-    wasmUrl: "/wterm.wasm",
     onData(data) {
       term.write(data);
     },
@@ -39,7 +38,7 @@ npm install @wterm/dom
 |---|---|---|---|
 | `cols` | `number` | `80` | Initial column count |
 | `rows` | `number` | `24` | Initial row count |
-| `wasmUrl` | `string` | `"wterm.wasm"` | URL to the WASM binary |
+| `wasmUrl` | `string` | — | Optional URL to serve the WASM binary separately (embedded by default) |
 | `autoResize` | `boolean` | `true` | Auto-resize based on container |
 | `cursorBlink` | `boolean` | `false` | Enable cursor blinking animation |
 | `onData` | `(data: string) => void` | — | Called when the terminal produces data (user input or host response) |
@@ -79,7 +78,7 @@ Connect to a PTY backend over WebSocket:
 ```js
 import { WTerm, WebSocketTransport } from "@wterm/dom";
 
-const term = new WTerm(el, { cols: 80, rows: 24, wasmUrl: "/wterm.wasm" });
+const term = new WTerm(el, { cols: 80, rows: 24 });
 await term.init();
 
 const ws = new WebSocketTransport({

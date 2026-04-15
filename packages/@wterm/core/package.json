@@ -18,6 +18,7 @@
     "wasm"
   ],
   "scripts": {
+    "prebuild": "node scripts/inline-wasm.js",
     "build": "tsc",
     "prepublishOnly": "pnpm build",
     "type-check": "tsc --noEmit"

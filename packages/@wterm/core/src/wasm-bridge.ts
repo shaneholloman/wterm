@@ -41,7 +41,14 @@ interface WasmExports {
   getMaxCols(): number;
 }
 
-const DEFAULT_WASM_URL = "wterm.wasm";
+import { WASM_BASE64 } from "./wasm-inline.js";
+
+function decodeBase64(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
 
 export class WasmBridge {
   private exports: WasmExports;
@@ -61,14 +68,18 @@ export class WasmBridge {
   }
 
   static async load(url?: string): Promise<WasmBridge> {
-    const wasmUrl = url || DEFAULT_WASM_URL;
-    const response = await fetch(wasmUrl);
-    if (!response.ok) {
-      throw new Error(
-        `Failed to load WASM from ${wasmUrl}: ${response.status} ${response.statusText}`,
-      );
+    let bytes: ArrayBuffer;
+    if (url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(
+          `[wterm] Failed to load WASM from ${url}: ${response.status} ${response.statusText}`,
+        );
+      }
+      bytes = await response.arrayBuffer();
+    } else {
+      bytes = decodeBase64(WASM_BASE64);
     }
-    const bytes = await response.arrayBuffer();
     const { instance } = await WebAssembly.instantiate(bytes);
     return new WasmBridge(instance);
   }
