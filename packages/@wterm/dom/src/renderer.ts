@@ -54,14 +54,10 @@ function buildCellStyle(fg: number, bg: number, flags: number): string {
 }
 
 function appendRun(parent: HTMLElement, text: string, style: string): void {
-  if (style) {
-    const span = document.createElement("span");
-    span.style.cssText = style;
-    span.textContent = text;
-    parent.appendChild(span);
-  } else {
-    parent.appendChild(document.createTextNode(text));
-  }
+  const span = document.createElement("span");
+  if (style) span.style.cssText = style;
+  span.textContent = text;
+  parent.appendChild(span);
 }
 
 function resolveColors(
@@ -167,6 +163,8 @@ export class Renderer {
   private rowEls: HTMLDivElement[] = [];
   private prevCursorRow = -1;
   private prevCursorCol = -1;
+  private prevContainerBg = "";
+  private prevRowBg: string[] = [];
 
   private _scrollbackRowEls: HTMLDivElement[] = [];
   private _renderedScrollbackCount = 0;
@@ -180,6 +178,7 @@ export class Renderer {
     this.rows = rows;
     this.container.innerHTML = "";
     this.rowEls = [];
+    this.prevRowBg = [];
     this._scrollbackRowEls = [];
     this._renderedScrollbackCount = 0;
 
@@ -205,6 +204,7 @@ export class Renderer {
     },
     lineLen: number,
     cursorCol: number,
+    rowIndex: number,
   ): void {
     rowEl.textContent = "";
 
@@ -271,6 +271,31 @@ export class Renderer {
       }
     }
     flushRun(this.cols);
+
+    // Extend the row background when the line fills the full width.
+    // When lineLen < cols, bgCss stays "" which clears any stale bg
+    // via the prevRowBg comparison below.
+    let bgCss = "";
+    if (lineLen >= this.cols && this.cols > 0) {
+      const lastCell = getCell(this.cols - 1);
+      let bgC = lastCell.bg;
+      if (lastCell.flags & FLAG_REVERSE) {
+        bgC = lastCell.fg;
+        if (bgC === DEFAULT_COLOR) bgC = 7;
+      }
+      bgCss = colorToCSS(bgC) || "";
+    }
+    const boxShadow = bgCss ? `0 1px 0 ${bgCss}` : "";
+    if (rowIndex >= 0) {
+      if (bgCss !== (this.prevRowBg[rowIndex] ?? "")) {
+        rowEl.style.background = bgCss;
+        rowEl.style.boxShadow = boxShadow;
+        this.prevRowBg[rowIndex] = bgCss;
+      }
+    } else {
+      rowEl.style.background = bgCss;
+      rowEl.style.boxShadow = boxShadow;
+    }
   }
 
   private _buildScrollbackRowEl(
@@ -285,6 +310,7 @@ export class Renderer {
       rowEl,
       (col) => bridge.getScrollbackCell(sbOffset, col),
       lineLen,
+      -1,
       -1,
     );
     return rowEl;
@@ -348,12 +374,30 @@ export class Renderer {
           (col) => bridge.getCell(r, col),
           this.cols,
           cCol,
+          r,
         );
       }
     }
 
     this.prevCursorRow = cursor.row;
     this.prevCursorCol = cursor.col;
+
+    // Update the container background only when the last row was actually
+    // repainted, avoiding stale reads during partial mid-redraw frames.
+    const lastRowDirty = resized || bridge.isDirtyRow(this.rows - 1);
+    if (lastRowDirty) {
+      const bottomRight = bridge.getCell(this.rows - 1, this.cols - 1);
+      let gridBg = bottomRight.bg;
+      if (bottomRight.flags & FLAG_REVERSE) {
+        gridBg = bottomRight.fg;
+        if (gridBg === DEFAULT_COLOR) gridBg = 7;
+      }
+      const containerBg = colorToCSS(gridBg) || "";
+      if (containerBg !== this.prevContainerBg) {
+        this.container.style.background = containerBg;
+        this.prevContainerBg = containerBg;
+      }
+    }
 
     bridge.clearDirty();
   }

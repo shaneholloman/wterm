@@ -144,6 +144,24 @@ export fn clearResponse() void {
     terminal.response_len = 0;
 }
 
+// -- Debug log (unhandled sequences ring buffer) --
+
+export fn getDebugLogPtr() [*]const u8 {
+    return @ptrCast(&terminal.debug_log);
+}
+
+export fn getDebugLogCount() u32 {
+    return terminal.debug_log_count;
+}
+
+export fn getDebugLogEntrySize() u32 {
+    return @sizeOf(terminal_mod.DebugLogEntry);
+}
+
+export fn getDebugLogMax() u32 {
+    return terminal_mod.DEBUG_LOG_MAX;
+}
+
 // -- Constants --
 
 export fn getCellSize() u32 {

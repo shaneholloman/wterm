@@ -1,6 +1,7 @@
 import { WasmBridge } from "@wterm/core";
 import { Renderer } from "./renderer.js";
 import { InputHandler } from "./input.js";
+import { DebugAdapter } from "./debug.js";
 
 export interface WTermOptions {
   cols?: number;
@@ -8,6 +9,7 @@ export interface WTermOptions {
   wasmUrl?: string;
   autoResize?: boolean;
   cursorBlink?: boolean;
+  debug?: boolean;
   onData?: (data: string) => void;
   onTitle?: (title: string) => void;
   onResize?: (cols: number, rows: number) => void;
@@ -19,14 +21,17 @@ export class WTerm {
   rows: number;
   bridge: WasmBridge | null = null;
   autoResize: boolean;
+  debug: DebugAdapter | null = null;
 
   private wasmUrl: string | undefined;
+  private _debugEnabled: boolean;
   private renderer: Renderer | null = null;
   private input: InputHandler | null = null;
   private rafId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private _destroyed = false;
   private _shouldScrollToBottom = false;
+  private _rowHeight = 0;
   private _onClickFocus: () => void;
 
   onData: ((data: string) => void) | null;
@@ -41,6 +46,7 @@ export class WTerm {
     this.cols = options.cols || 80;
     this.rows = options.rows || 24;
     this.autoResize = options.autoResize !== false;
+    this._debugEnabled = options.debug ?? false;
 
     this.onData = options.onData || null;
     this.onTitle = options.onTitle || null;
@@ -65,12 +71,21 @@ export class WTerm {
       if (this._destroyed) return this;
       this.bridge.init(this.cols, this.rows);
 
+      if (this._debugEnabled) {
+        this.debug = new DebugAdapter();
+        this.debug.setBridge(this.bridge);
+        (globalThis as Record<string, unknown>).__wterm = this;
+      }
+
+      this._setRowHeight();
+
       this.renderer = new Renderer(this._container);
       this.renderer.setup(this.cols, this.rows);
 
       this.input = new InputHandler(
         this.element,
         (data) => {
+          this._scrollToBottom();
           if (this.onData) {
             this.onData(data);
           } else {
@@ -104,11 +119,19 @@ export class WTerm {
   }
 
   private _scrollToBottom(): void {
-    this.element.scrollTop = this.element.scrollHeight;
+    const el = this.element;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    if (maxScroll <= 0) {
+      el.scrollTop = 0;
+      return;
+    }
+    const rh = this._rowHeight || 17;
+    el.scrollTop = Math.floor(maxScroll / rh) * rh;
   }
 
   write(data: string | Uint8Array): void {
     if (!this.bridge) return;
+    if (this.debug) this.debug.traceWrite(data);
     this._shouldScrollToBottom = this._isScrolledToBottom();
     if (typeof data === "string") {
       this.bridge.writeString(data);
@@ -153,13 +176,27 @@ export class WTerm {
   private _doRender(): void {
     if (!this.bridge || !this.renderer) return;
 
+    let dirtyCount = 0;
+    const t0 = this.debug ? performance.now() : 0;
+    if (this.debug) {
+      for (let r = 0; r < this.rows; r++) {
+        if (this.bridge.isDirtyRow(r)) dirtyCount++;
+      }
+    }
+
     this.renderer.render(this.bridge);
+
+    if (this.debug) {
+      this.debug.recordRender(performance.now() - t0, dirtyCount);
+    }
 
     const hasScrollback = this.bridge.getScrollbackCount() > 0;
     this.element.classList.toggle("has-scrollback", hasScrollback);
 
     if (this._shouldScrollToBottom) {
       this._scrollToBottom();
+    } else if (!hasScrollback && this.element.scrollTop !== 0) {
+      this.element.scrollTop = 0;
     }
 
     const title = this.bridge.getTitle();
@@ -174,10 +211,9 @@ export class WTerm {
   }
 
   private _lockHeight(): void {
+    const rh = this._rowHeight || 17;
+    const gridHeight = this.rows * rh;
     const cs = getComputedStyle(this.element);
-    const rowHeight =
-      parseFloat(cs.getPropertyValue("--term-row-height")) || 17;
-    const gridHeight = this.rows * rowHeight;
     let extra =
       (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     if (cs.boxSizing === "border-box") {
@@ -188,39 +224,62 @@ export class WTerm {
     this.element.style.height = `${gridHeight + extra}px`;
   }
 
-  private _measureCharSize(): { width: number; height: number } | null {
-    const probe = document.createElement("span");
-    probe.className = "term-cell";
-    probe.textContent = "W";
-    probe.style.position = "absolute";
+  private _setRowHeight(): void {
+    const probe = document.createElement("div");
+    probe.className = "term-row";
     probe.style.visibility = "hidden";
+    probe.style.position = "absolute";
+    probe.textContent = "W";
     this._container.appendChild(probe);
-    const rect = probe.getBoundingClientRect();
-    const width = rect.width;
-    const height = rect.height;
+    const h = probe.getBoundingClientRect().height;
     probe.remove();
-    if (width === 0 || height === 0) return null;
-    return { width, height };
+    if (h > 0) {
+      const rh = Math.ceil(h);
+      this._rowHeight = rh;
+      this.element.style.setProperty("--term-row-height", `${rh}px`);
+    }
+  }
+
+  private _measureCharSize(): {
+    charWidth: number;
+    rowHeight: number;
+  } | null {
+    const row = document.createElement("div");
+    row.className = "term-row";
+    row.style.visibility = "hidden";
+    row.style.position = "absolute";
+
+    const probe = document.createElement("span");
+    probe.textContent = "W";
+    row.appendChild(probe);
+
+    this._container.appendChild(row);
+    const charWidth = probe.getBoundingClientRect().width;
+    const rowHeight = row.getBoundingClientRect().height;
+    row.remove();
+
+    if (charWidth === 0 || rowHeight === 0) return null;
+    this._rowHeight = rowHeight;
+    return { charWidth, rowHeight };
   }
 
   private _setupResizeObserver(): void {
     const initial = this._measureCharSize();
     if (!initial) return;
 
-    let charWidth = initial.width;
-    let charHeight = initial.height;
+    let { charWidth, rowHeight } = initial;
 
     this.resizeObserver = new ResizeObserver((entries) => {
       const measured = this._measureCharSize();
       if (measured) {
-        charWidth = measured.width;
-        charHeight = measured.height;
+        charWidth = measured.charWidth;
+        rowHeight = measured.rowHeight;
       }
 
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         const newCols = Math.max(1, Math.floor(width / charWidth));
-        const newRows = Math.max(1, Math.floor(height / charHeight));
+        const newRows = Math.max(1, Math.floor(height / rowHeight));
         if (newCols !== this.cols || newRows !== this.rows) {
           this.resize(newCols, newRows);
         }
@@ -236,5 +295,12 @@ export class WTerm {
     if (this.input) this.input.destroy();
     this.element.removeEventListener("click", this._onClickFocus);
     this.element.innerHTML = "";
+    if (
+      this.debug &&
+      (globalThis as Record<string, unknown>).__wterm === this
+    ) {
+      delete (globalThis as Record<string, unknown>).__wterm;
+    }
+    this.debug = null;
   }
 }

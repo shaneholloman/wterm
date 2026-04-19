@@ -7,9 +7,11 @@ import {
 } from "react";
 import { WTerm } from "@wterm/dom";
 
+// onResize and onError are omitted from HTMLAttributes because we redefine
+// them with different signatures (terminal dimensions / WASM init errors).
 export interface TerminalProps extends Omit<
   HTMLAttributes<HTMLDivElement>,
-  "onResize"
+  "onResize" | "onError"
 > {
   cols?: number;
   rows?: number;
@@ -17,6 +19,8 @@ export interface TerminalProps extends Omit<
   theme?: string;
   autoResize?: boolean;
   cursorBlink?: boolean;
+  /** Enable debug mode (init-only — changing after mount has no effect). */
+  debug?: boolean;
   onData?: (data: string) => void;
   onTitle?: (title: string) => void;
   onResize?: (cols: number, rows: number) => void;
@@ -39,6 +43,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(
     theme,
     autoResize = false,
     cursorBlink = false,
+    debug = false,
     onData,
     onTitle,
     onResize,
@@ -46,12 +51,18 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(
     onError,
     className,
     style,
-    ...rest
-  },
-  ref,
+    ...htmlProps
+  }: TerminalProps,
+  ref: React.ForwardedRef<TerminalHandle>,
 ) {
   const wtermRef = useRef<WTerm | null>(null);
-  const callbacksRef = useRef({ onData, onTitle, onResize, onReady, onError });
+  const callbacksRef = useRef({
+    onData,
+    onTitle,
+    onResize,
+    onReady,
+    onError,
+  });
   const autoResizeRef = useRef(autoResize);
 
   callbacksRef.current = { onData, onTitle, onResize, onReady, onError };
@@ -84,6 +95,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(
         wasmUrl,
         autoResize: autoResizeRef.current,
         cursorBlink,
+        debug,
         onData: callbacksRef.current.onData
           ? (data: string) => callbacksRef.current.onData?.(data)
           : undefined,
@@ -152,7 +164,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(
       aria-label="Terminal"
       aria-multiline="true"
       aria-roledescription="terminal"
-      {...rest}
+      {...htmlProps}
     />
   );
 });

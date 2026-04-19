@@ -9,6 +9,21 @@ const Parser = parser_mod.Parser;
 const Action = parser_mod.Action;
 const Scrollback = scrollback_mod.Scrollback;
 
+pub const DEBUG_LOG_MAX: u8 = 32;
+
+pub const DebugLogEntry = struct {
+    final_byte: u8 = 0,
+    private_marker: u8 = 0,
+    param_count: u8 = 0,
+    _pad: u8 = 0,
+    params: [4]u16 = [_]u16{0} ** 4,
+};
+
+comptime {
+    if (@sizeOf(DebugLogEntry) != 12)
+        @compileError("DebugLogEntry size changed — update wasm-bridge.ts entrySize");
+}
+
 pub const Terminal = struct {
     grid: Grid,
     parser: Parser = .{},
@@ -59,6 +74,11 @@ pub const Terminal = struct {
     response_buf: [64]u8 = undefined,
     response_len: u8 = 0,
 
+    // Ring buffer of unhandled/ignored CSI sequences for debug introspection
+    debug_log: [DEBUG_LOG_MAX]DebugLogEntry = [_]DebugLogEntry{.{}} ** DEBUG_LOG_MAX,
+    debug_log_idx: u8 = 0,
+    debug_log_count: u32 = 0,
+
     tab_stops: [grid_mod.MAX_COLS]u8 = initTabStops(),
 
     pub fn init(cols: u16, rows: u16) Terminal {
@@ -68,6 +88,29 @@ pub const Terminal = struct {
             .rows = rows,
             .scroll_bottom = rows,
         };
+    }
+
+    /// Returns a blank (space) cell carrying only the current SGR background.
+    /// Foreground and flags are intentionally omitted: ECMA-48 BCE specifies
+    /// that erased cells inherit only the background color, not other attrs.
+    fn blankCell(self: *const Terminal) Cell {
+        return Cell{ .bg = self.current_bg };
+    }
+
+    fn logUnhandled(self: *Terminal, final: u8, private_marker: u8) void {
+        var entry = DebugLogEntry{
+            .final_byte = final,
+            .private_marker = private_marker,
+        };
+        entry.param_count = self.parser.param_count;
+        const copy_count: u8 = if (self.parser.param_count > 4) 4 else self.parser.param_count;
+        var i: u8 = 0;
+        while (i < copy_count) : (i += 1) {
+            entry.params[i] = self.parser.params[i];
+        }
+        self.debug_log[self.debug_log_idx] = entry;
+        self.debug_log_idx = (self.debug_log_idx + 1) % DEBUG_LOG_MAX;
+        self.debug_log_count +|= 1;
     }
 
     /// Reset in-place without creating large stack temporaries.
@@ -261,7 +304,7 @@ pub const Terminal = struct {
                     sb.push(&self.grid.cells[self.scroll_top], self.cols);
                 }
             }
-            self.grid.scrollUp(self.scroll_top, self.scroll_bottom, 1);
+            self.grid.scrollUp(self.scroll_top, self.scroll_bottom, 1, self.blankCell());
         } else {
             self.cursor_row += 1;
         }
@@ -336,7 +379,7 @@ pub const Terminal = struct {
 
     fn reverseIndex(self: *Terminal) void {
         if (self.cursor_row == self.scroll_top) {
-            self.grid.scrollDown(self.scroll_top, self.scroll_bottom, 1);
+            self.grid.scrollDown(self.scroll_top, self.scroll_bottom, 1, self.blankCell());
         } else if (self.cursor_row > 0) {
             self.cursor_row -= 1;
         }
@@ -357,6 +400,10 @@ pub const Terminal = struct {
         }
         if (self.parser.csi_private == '!' and final == 'p') {
             self.softReset();
+            return;
+        }
+        if (self.parser.csi_private == '>') {
+            self.logUnhandled(final, '>');
             return;
         }
 
@@ -395,7 +442,7 @@ pub const Terminal = struct {
             'u' => self.restoreCursor(),
             '@' => self.insertBlanks(self.parser.getParam(0, 1)),
             '`' => self.cursorToColumn(self.parser.getParam(0, 1)),
-            else => {},
+            else => self.logUnhandled(final, 0),
         }
     }
 
@@ -403,7 +450,7 @@ pub const Terminal = struct {
         switch (final) {
             'h' => self.setPrivateMode(true),
             'l' => self.setPrivateMode(false),
-            else => {},
+            else => self.logUnhandled(final, '?'),
         }
     }
 
@@ -555,37 +602,41 @@ pub const Terminal = struct {
     // -- Erase operations --
 
     fn eraseInDisplay(self: *Terminal, mode: u16) void {
+        const blank = self.blankCell();
         switch (mode) {
             0 => {
-                self.grid.clearRange(self.cursor_row, self.cursor_col, self.cols);
+                self.grid.clearRangeAs(self.cursor_row, self.cursor_col, self.cols, blank);
                 var r = self.cursor_row + 1;
                 while (r < self.rows) : (r += 1) {
-                    self.grid.clearRow(r);
+                    self.grid.clearRowAs(r, blank);
                 }
             },
             1 => {
                 var r: u16 = 0;
                 while (r < self.cursor_row) : (r += 1) {
-                    self.grid.clearRow(r);
+                    self.grid.clearRowAs(r, blank);
                 }
-                self.grid.clearRange(self.cursor_row, 0, self.cursor_col + 1);
+                self.grid.clearRangeAs(self.cursor_row, 0, self.cursor_col + 1, blank);
             },
-            2 => {
-                self.grid.clear();
-            },
-            3 => {
-                self.grid.clear();
-                if (self.scrollback) |sb| sb.reset();
+            2, 3 => {
+                var r: u16 = 0;
+                while (r < self.rows) : (r += 1) {
+                    self.grid.clearRowAs(r, blank);
+                }
+                if (mode == 3) {
+                    if (self.scrollback) |sb| sb.reset();
+                }
             },
             else => {},
         }
     }
 
     fn eraseInLine(self: *Terminal, mode: u16) void {
+        const blank = self.blankCell();
         switch (mode) {
-            0 => self.grid.clearRange(self.cursor_row, self.cursor_col, self.cols),
-            1 => self.grid.clearRange(self.cursor_row, 0, self.cursor_col + 1),
-            2 => self.grid.clearRow(self.cursor_row),
+            0 => self.grid.clearRangeAs(self.cursor_row, self.cursor_col, self.cols, blank),
+            1 => self.grid.clearRangeAs(self.cursor_row, 0, self.cursor_col + 1, blank),
+            2 => self.grid.clearRowAs(self.cursor_row, blank),
             else => {},
         }
     }
@@ -593,37 +644,39 @@ pub const Terminal = struct {
     fn eraseChars(self: *Terminal, n: u16) void {
         const count = if (n == 0) 1 else n;
         const end = if (self.cursor_col + count > self.cols) self.cols else self.cursor_col + count;
-        self.grid.clearRange(self.cursor_row, self.cursor_col, end);
+        self.grid.clearRangeAs(self.cursor_row, self.cursor_col, end, self.blankCell());
     }
 
     // -- Insert / delete --
 
     fn insertLines(self: *Terminal, n: u16) void {
         if (self.cursor_row < self.scroll_top or self.cursor_row >= self.scroll_bottom) return;
-        self.grid.scrollDown(self.cursor_row, self.scroll_bottom, if (n == 0) 1 else n);
+        self.grid.scrollDown(self.cursor_row, self.scroll_bottom, if (n == 0) 1 else n, self.blankCell());
     }
 
     fn deleteLines(self: *Terminal, n: u16) void {
         if (self.cursor_row < self.scroll_top or self.cursor_row >= self.scroll_bottom) return;
-        self.grid.scrollUp(self.cursor_row, self.scroll_bottom, if (n == 0) 1 else n);
+        self.grid.scrollUp(self.cursor_row, self.scroll_bottom, if (n == 0) 1 else n, self.blankCell());
     }
 
     fn deleteChars(self: *Terminal, n: u16) void {
         const count = if (n == 0) 1 else n;
+        const blank = self.blankCell();
         var col = self.cursor_col;
         while (col + count < self.cols) : (col += 1) {
             self.grid.cells[self.cursor_row][col] = self.grid.cells[self.cursor_row][col + count];
         }
         while (col < self.cols) : (col += 1) {
-            self.grid.cells[self.cursor_row][col] = Cell{};
+            self.grid.cells[self.cursor_row][col] = blank;
         }
         self.grid.dirty[self.cursor_row] = 1;
     }
 
     fn insertBlanks(self: *Terminal, n: u16) void {
         const count = if (n == 0) 1 else n;
+        const blank = self.blankCell();
         if (self.cursor_col + count >= self.cols) {
-            self.grid.clearRange(self.cursor_row, self.cursor_col, self.cols);
+            self.grid.clearRangeAs(self.cursor_row, self.cursor_col, self.cols, blank);
             return;
         }
         var col = self.cols - 1;
@@ -634,7 +687,7 @@ pub const Terminal = struct {
         var c = self.cursor_col;
         const end = if (self.cursor_col + count > self.cols) self.cols else self.cursor_col + count;
         while (c < end) : (c += 1) {
-            self.grid.cells[self.cursor_row][c] = Cell{};
+            self.grid.cells[self.cursor_row][c] = blank;
         }
         self.grid.dirty[self.cursor_row] = 1;
     }
@@ -649,11 +702,11 @@ pub const Terminal = struct {
                 }
             }
         }
-        self.grid.scrollUp(self.scroll_top, self.scroll_bottom, count);
+        self.grid.scrollUp(self.scroll_top, self.scroll_bottom, count, self.blankCell());
     }
 
     fn scrollDownN(self: *Terminal, n: u16) void {
-        self.grid.scrollDown(self.scroll_top, self.scroll_bottom, if (n == 0) 1 else n);
+        self.grid.scrollDown(self.scroll_top, self.scroll_bottom, if (n == 0) 1 else n, self.blankCell());
     }
 
     // -- Scroll region --
@@ -704,7 +757,19 @@ pub const Terminal = struct {
                 1 => self.current_flags |= cell_mod.FLAG_BOLD,
                 2 => self.current_flags |= cell_mod.FLAG_DIM,
                 3 => self.current_flags |= cell_mod.FLAG_ITALIC,
-                4 => self.current_flags |= cell_mod.FLAG_UNDERLINE,
+                4 => {
+                    if (i + 1 < self.parser.param_count and self.parser.subparam[i + 1]) {
+                        const sub = self.parser.params[i + 1];
+                        if (sub == 0) {
+                            self.current_flags &= ~cell_mod.FLAG_UNDERLINE;
+                        } else {
+                            self.current_flags |= cell_mod.FLAG_UNDERLINE;
+                        }
+                        i += 1;
+                    } else {
+                        self.current_flags |= cell_mod.FLAG_UNDERLINE;
+                    }
+                },
                 5 => self.current_flags |= cell_mod.FLAG_BLINK,
                 7 => self.current_flags |= cell_mod.FLAG_REVERSE,
                 8 => self.current_flags |= cell_mod.FLAG_INVISIBLE,
@@ -728,7 +793,12 @@ pub const Terminal = struct {
                 49 => self.current_bg = cell_mod.DEFAULT_COLOR,
                 90...97 => self.current_fg = @intCast(p - 90 + 8),
                 100...107 => self.current_bg = @intCast(p - 100 + 8),
-                else => {},
+                else => {
+                    // Skip colon sub-parameters we don't handle
+                    while (i + 1 < self.parser.param_count and self.parser.subparam[i + 1]) {
+                        i += 1;
+                    }
+                },
             }
             i += 1;
         }
@@ -903,6 +973,37 @@ test "alternate screen buffer" {
     t.write("\x1b[?1049l");
     try testing.expect(!t.using_alt_screen);
     try testing.expectEqual(@as(u32, 'm'), t.grid.getCell(0, 0).char);
+}
+
+test "erase inherits current background color" {
+    const testing = @import("std").testing;
+    var t = Terminal.init(80, 24);
+    // Set bg to red (index 1) and write some text
+    t.write("\x1b[41m");
+    try testing.expectEqual(@as(u16, 1), t.current_bg);
+    // Erase the line — erased cells should inherit the red bg
+    t.write("\x1b[2K");
+    const cell = t.grid.getCell(0, 0);
+    try testing.expectEqual(@as(u16, 1), cell.bg);
+    try testing.expectEqual(@as(u32, ' '), cell.char);
+    // Erase in display (mode 2) — all cells should have red bg
+    t.write("\x1b[2J");
+    const cell2 = t.grid.getCell(5, 10);
+    try testing.expectEqual(@as(u16, 1), cell2.bg);
+    // After SGR reset, erase should use default bg
+    t.write("\x1b[0m\x1b[2K");
+    const cell3 = t.grid.getCell(0, 0);
+    try testing.expectEqual(cell_mod.DEFAULT_COLOR, cell3.bg);
+}
+
+test "scroll fills new lines with current background" {
+    const testing = @import("std").testing;
+    var t = Terminal.init(80, 3);
+    t.write("\x1b[42m"); // green bg
+    t.write("L1\r\nL2\r\nL3\r\nL4");
+    // After scrolling, the bottom row's empty cells should have green bg
+    const blank_cell = t.grid.getCell(2, 79);
+    try testing.expectEqual(@as(u16, 2), blank_cell.bg);
 }
 
 test "scrollback" {
