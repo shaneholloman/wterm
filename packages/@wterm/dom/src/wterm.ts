@@ -1,4 +1,4 @@
-import { WasmBridge } from "@wterm/core";
+import { WasmBridge, type TerminalCore } from "@wterm/core";
 import { Renderer } from "./renderer.js";
 import { InputHandler } from "./input.js";
 import { DebugAdapter } from "./debug.js";
@@ -6,6 +6,11 @@ import { DebugAdapter } from "./debug.js";
 export interface WTermOptions {
   cols?: number;
   rows?: number;
+  /**
+   * A pre-constructed terminal core. When provided, `wasmUrl` is ignored and
+   * this core is used directly instead of loading the built-in Zig WASM binary.
+   */
+  core?: TerminalCore;
   wasmUrl?: string;
   autoResize?: boolean;
   cursorBlink?: boolean;
@@ -19,15 +24,17 @@ export class WTerm {
   element: HTMLElement;
   cols: number;
   rows: number;
-  bridge: WasmBridge | null = null;
+  bridge: TerminalCore | null = null;
   autoResize: boolean;
   debug: DebugAdapter | null = null;
 
+  private _coreOption: TerminalCore | undefined;
   private wasmUrl: string | undefined;
   private _debugEnabled: boolean;
   private renderer: Renderer | null = null;
   private input: InputHandler | null = null;
   private rafId: number | null = null;
+  private _renderTimer: ReturnType<typeof setTimeout> | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private _destroyed = false;
   private _shouldScrollToBottom = false;
@@ -42,6 +49,7 @@ export class WTerm {
 
   constructor(element: HTMLElement, options: WTermOptions = {}) {
     this.element = element;
+    this._coreOption = options.core;
     this.wasmUrl = options.wasmUrl;
     this.cols = options.cols || 80;
     this.rows = options.rows || 24;
@@ -67,7 +75,11 @@ export class WTerm {
 
   async init(): Promise<this> {
     try {
-      this.bridge = await WasmBridge.load(this.wasmUrl);
+      if (this._coreOption) {
+        this.bridge = this._coreOption;
+      } else {
+        this.bridge = await WasmBridge.load(this.wasmUrl);
+      }
       if (this._destroyed) return this;
       this.bridge.init(this.cols, this.rows);
 
@@ -161,12 +173,16 @@ export class WTerm {
   }
 
   private _scheduleRender(): void {
-    if (this.rafId == null) {
-      this.rafId = requestAnimationFrame(() => {
-        this.rafId = null;
-        this._doRender();
-      });
-    }
+    if (this._renderTimer != null) return;
+    this._renderTimer = setTimeout(() => {
+      this._renderTimer = null;
+      if (this.rafId == null) {
+        this.rafId = requestAnimationFrame(() => {
+          this.rafId = null;
+          this._doRender();
+        });
+      }
+    }, 0);
   }
 
   private _initialRender(): void {
@@ -290,6 +306,7 @@ export class WTerm {
 
   destroy(): void {
     this._destroyed = true;
+    if (this._renderTimer != null) clearTimeout(this._renderTimer);
     if (this.rafId != null) cancelAnimationFrame(this.rafId);
     if (this.resizeObserver) this.resizeObserver.disconnect();
     if (this.input) this.input.destroy();
