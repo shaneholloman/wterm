@@ -22,6 +22,9 @@ interface WasmExports {
   getCursorKeysApp(): number;
   getBracketedPaste(): number;
   getUsingAltScreen(): number;
+  getMouseTracking(): number;
+  getMouseSgr(): number;
+  getFocusEvents(): number;
   getSynchronizedOutput(): number;
   getSynchronizedOutputGeneration(): number;
   getTitlePtr(): number;
@@ -166,6 +169,16 @@ export class WasmBridge implements TerminalCore {
   }
   usingAltScreen(): boolean {
     return this.exports.getUsingAltScreen() !== 0;
+  }
+  mouseTracking(): 0 | 1000 | 1002 {
+    const mode = this.exports.getMouseTracking();
+    return mode === 1000 || mode === 1002 ? mode : 0;
+  }
+  mouseSgr(): boolean {
+    return this.exports.getMouseSgr() !== 0;
+  }
+  focusEvents(): boolean {
+    return this.exports.getFocusEvents() !== 0;
   }
   synchronizedOutput(): boolean {
     return this.exports.getSynchronizedOutput() !== 0;
