@@ -34,12 +34,24 @@ pub const Scrollback = struct {
         }
     }
 
+    /// Remove and return the most recent line, the one `getLine(0)` returns.
+    /// A vertical grow pulls rows back out of history into the viewport, so the
+    /// store is no longer append-only: offsets shift and any host holding one
+    /// must re-read after a resize.
+    pub fn pop(self: *Scrollback) ?*const ScrollbackLine {
+        if (self.count == 0) return null;
+        self.write_pos = (self.write_pos + MAX_SCROLLBACK_LINES - 1) % MAX_SCROLLBACK_LINES;
+        self.count -= 1;
+        return &self.lines[self.write_pos];
+    }
+
     pub fn getLine(self: *const Scrollback, offset: u32) ?*const ScrollbackLine {
         if (offset >= self.count) return null;
-        const idx = if (self.count < MAX_SCROLLBACK_LINES)
-            self.count - 1 - offset
-        else
-            (self.write_pos + MAX_SCROLLBACK_LINES - 1 - offset) % MAX_SCROLLBACK_LINES;
+        // Counting back from the write position is correct whether or not the
+        // ring has wrapped. The previous fast path keyed off `count` being
+        // below the maximum, which stopped meaning "never wrapped" once `pop`
+        // could lower `count` on a wrapped ring.
+        const idx = (self.write_pos + MAX_SCROLLBACK_LINES - 1 - offset) % MAX_SCROLLBACK_LINES;
         return &self.lines[idx];
     }
 };
