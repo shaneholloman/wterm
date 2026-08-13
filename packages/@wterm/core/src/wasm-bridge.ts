@@ -1,6 +1,7 @@
 import type {
   CellData,
   CursorState,
+  TerminalResourceState,
   UnhandledSequence,
   TerminalCore,
 } from "./terminal-core.js";
@@ -30,6 +31,13 @@ interface WasmExports {
   getTitlePtr(): number;
   getTitleLen(): number;
   getTitleChanged(): number;
+  getLinkUriPtr(index: number): number;
+  getLinkUriLen(index: number): number;
+  getLinkIdPtr(index: number): number;
+  getLinkIdLen(index: number): number;
+  getHyperlinkCapacity?(): number;
+  getHyperlinkCount?(): number;
+  getHyperlinkRejectedCount?(): number;
   getScrollbackCount(): number;
   getScrollbackDiscardedCount(): number;
   getScrollbackLine(offset: number): number;
@@ -66,6 +74,10 @@ export class WasmBridge implements TerminalCore {
   private decoder = new TextDecoder();
   private _dv!: DataView;
   private _dvBuffer: ArrayBuffer | null = null;
+  private linkCache = new Map<
+    number,
+    { linkUri: string; linkId?: string; linkKey: string }
+  >();
 
   private get dv(): DataView {
     if (this._dvBuffer !== this.memory.buffer) {
@@ -99,6 +111,7 @@ export class WasmBridge implements TerminalCore {
 
   init(cols: number, rows: number): void {
     this.exports.init(cols, rows);
+    this.linkCache.clear();
     this._updatePointers();
   }
 
@@ -130,13 +143,15 @@ export class WasmBridge implements TerminalCore {
   getCell(row: number, col: number): CellData {
     const offset = this.gridPtr + (row * this.maxCols + col) * this.cellSize;
     const dv = this.dv;
-    return {
+    const result: CellData = {
       char: dv.getUint32(offset, true),
       fg: dv.getUint16(offset + 4, true),
       bg: dv.getUint16(offset + 6, true),
       flags: dv.getUint8(offset + 8),
       width: dv.getUint8(offset + 9),
     };
+    Object.assign(result, this._readLink(dv.getUint16(offset + 10, true)));
+    return result;
   }
 
   isDirtyRow(row: number): boolean {
@@ -206,6 +221,27 @@ export class WasmBridge implements TerminalCore {
     return str;
   }
 
+  getResourceState(): TerminalResourceState {
+    const capacity = this.exports.getHyperlinkCapacity?.();
+    const used = this.exports.getHyperlinkCount?.();
+    const rejected = this.exports.getHyperlinkRejectedCount?.();
+    if (
+      capacity === undefined ||
+      used === undefined ||
+      rejected === undefined
+    ) {
+      return {};
+    }
+    return {
+      hyperlinks: {
+        capacity,
+        used,
+        rejected,
+        saturated: used >= capacity,
+      },
+    };
+  }
+
   getScrollbackCount(): number {
     return this.exports.getScrollbackCount();
   }
@@ -218,13 +254,15 @@ export class WasmBridge implements TerminalCore {
     const ptr = this.exports.getScrollbackLine(offset);
     const off = ptr + col * this.cellSize;
     const dv = this.dv;
-    return {
+    const result: CellData = {
       char: dv.getUint32(off, true),
       fg: dv.getUint16(off + 4, true),
       bg: dv.getUint16(off + 6, true),
       flags: dv.getUint8(off + 8),
       width: dv.getUint8(off + 9),
     };
+    Object.assign(result, this._readLink(dv.getUint16(off + 10, true)));
+    return result;
   }
 
   getScrollbackLineLen(offset: number): number {
@@ -265,5 +303,41 @@ export class WasmBridge implements TerminalCore {
   resize(cols: number, rows: number): void {
     this.exports.resizeTerminal(cols, rows);
     this._updatePointers();
+  }
+
+  private _readLink(
+    index: number,
+  ): { linkUri: string; linkId?: string; linkKey: string } | undefined {
+    if (index === 0) return undefined;
+    const cached = this.linkCache.get(index);
+    if (cached) return cached;
+
+    const uriLen = this.exports.getLinkUriLen(index);
+    if (uriLen === 0) return undefined;
+    const uri = this.decoder.decode(
+      new Uint8Array(
+        this.memory.buffer,
+        this.exports.getLinkUriPtr(index),
+        uriLen,
+      ),
+    );
+    const idLen = this.exports.getLinkIdLen(index);
+    const linkId =
+      idLen === 0
+        ? undefined
+        : this.decoder.decode(
+            new Uint8Array(
+              this.memory.buffer,
+              this.exports.getLinkIdPtr(index),
+              idLen,
+            ),
+          );
+    const value = {
+      linkUri: uri,
+      linkId,
+      linkKey: linkId ? `e\0${linkId}\0${uri}` : `b\0${index}`,
+    };
+    this.linkCache.set(index, value);
+    return value;
   }
 }

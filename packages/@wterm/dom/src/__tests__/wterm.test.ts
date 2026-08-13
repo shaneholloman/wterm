@@ -21,6 +21,8 @@ function createMockBridge(): WasmBridge {
     cursorKeysApp: vi.fn(() => false),
     bracketedPaste: vi.fn(() => false),
     usingAltScreen: vi.fn(() => false),
+    mouseTracking: vi.fn(() => 0),
+    mouseSgr: vi.fn(() => false),
     synchronizedOutput: vi.fn(() => false),
     getScrollbackDiscardedCount: vi.fn(() => 0),
   } as unknown as WasmBridge;
@@ -85,6 +87,140 @@ describe("WTerm", () => {
       const term = new WTerm(element, { cols: 120, rows: 40 });
       expect(term.cols).toBe(120);
       expect(term.rows).toBe(40);
+    });
+  });
+
+  describe("hyperlink activation", () => {
+    it.each([
+      ["MacIntel", "Meta", { key: "Meta", metaKey: true }],
+      ["Win32", "Control", { key: "Control", ctrlKey: true }],
+    ])("shows link affordance on %s while %s is held", (platform, _, init) => {
+      vi.spyOn(window.navigator, "platform", "get").mockReturnValue(platform);
+      const term = new WTerm(element, { autoResize: false });
+
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, ...init }),
+      );
+      expect(element.classList.contains("link-modifier-active")).toBe(true);
+
+      document.dispatchEvent(
+        new KeyboardEvent("keyup", { bubbles: true, key: init.key }),
+      );
+      expect(element.classList.contains("link-modifier-active")).toBe(false);
+
+      term.destroy();
+    });
+
+    it("clears link affordance on window blur and destroy", () => {
+      vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+      const term = new WTerm(element, { autoResize: false });
+
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "Meta",
+          metaKey: true,
+        }),
+      );
+      window.dispatchEvent(new Event("blur"));
+      expect(element.classList.contains("link-modifier-active")).toBe(false);
+
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "Meta",
+          metaKey: true,
+        }),
+      );
+      term.destroy();
+      expect(element.classList.contains("link-modifier-active")).toBe(false);
+
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "Control",
+          ctrlKey: true,
+        }),
+      );
+      expect(element.classList.contains("link-modifier-active")).toBe(false);
+    });
+
+    it("blocks plain link activation", async () => {
+      const term = new WTerm(element, { autoResize: false });
+      await term.init();
+      const link = document.createElement("a");
+      link.className = "term-link";
+      element.querySelector(".term-grid")!.appendChild(link);
+
+      const event = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        detail: 1,
+      });
+      expect(link.dispatchEvent(event)).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it.each([
+      ["MacIntel", "Meta", { metaKey: true }],
+      ["Win32", "Control", { ctrlKey: true }],
+    ])(
+      "keeps %s-click available on %s while mouse tracking is active",
+      async (platform, _, init) => {
+        vi.spyOn(window.navigator, "platform", "get").mockReturnValue(platform);
+        vi.mocked(mockBridge.mouseTracking!).mockReturnValue(1002);
+        vi.mocked(mockBridge.mouseSgr!).mockReturnValue(true);
+        const term = new WTerm(element, { autoResize: false });
+        await term.init();
+        const link = document.createElement("a");
+        link.className = "term-link";
+        element.querySelector(".term-grid")!.appendChild(link);
+
+        const event = new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        });
+        expect(link.dispatchEvent(event)).toBe(true);
+        expect(event.defaultPrevented).toBe(false);
+      },
+    );
+
+    it.each([
+      ["MacIntel", { ctrlKey: true }],
+      ["Win32", { metaKey: true }],
+    ])("blocks the non-native modifier on %s", async (platform, init) => {
+      vi.spyOn(window.navigator, "platform", "get").mockReturnValue(platform);
+      const term = new WTerm(element, { autoResize: false });
+      await term.init();
+      const link = document.createElement("a");
+      link.className = "term-link";
+      element.querySelector(".term-grid")!.appendChild(link);
+
+      const event = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        detail: 1,
+        ...init,
+      });
+      expect(link.dispatchEvent(event)).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it("keeps keyboard activation available", async () => {
+      const term = new WTerm(element, { autoResize: false });
+      await term.init();
+      const link = document.createElement("a");
+      link.className = "term-link";
+      element.querySelector(".term-grid")!.appendChild(link);
+
+      const event = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        detail: 0,
+      });
+      expect(link.dispatchEvent(event)).toBe(true);
+      expect(event.defaultPrevented).toBe(false);
     });
   });
 
@@ -233,6 +369,83 @@ describe("WTerm", () => {
       await term.init();
       term.resize(100, 30);
       expect(onResize).toHaveBeenCalledWith(100, 30);
+    });
+
+    it("preserves the scroll offset while rebuilding virtualized rows", async () => {
+      vi.mocked(mockBridge.getScrollbackCount).mockReturnValue(100);
+      vi.mocked(mockBridge.getCols).mockReturnValue(100);
+      vi.mocked(mockBridge.getRows).mockReturnValue(30);
+      vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
+        cb(performance.now());
+        return 1;
+      });
+      const originalSetup = Renderer.prototype.setup;
+      vi.spyOn(Renderer.prototype, "setup").mockImplementation(
+        function (cols, rows) {
+          originalSetup.call(this, cols, rows);
+          element.scrollTop = 0;
+        },
+      );
+      const render = vi.spyOn(Renderer.prototype, "render");
+      Object.defineProperty(element, "clientHeight", {
+        configurable: true,
+        value: 170,
+      });
+      Object.defineProperty(element, "scrollHeight", {
+        configurable: true,
+        value: 2210,
+      });
+
+      const term = new WTerm(element, { autoResize: false });
+      await term.init();
+      (term as unknown as { _rowHeight: number })._rowHeight = 17;
+      element.scrollTop = 600;
+      render.mockClear();
+
+      term.resize(100, 30);
+
+      expect(render.mock.calls[0][1]?.scrollTop).toBe(600);
+      expect(element.scrollTop).toBe(600);
+    });
+
+    it("keeps the original scroll offset across coalesced resizes", async () => {
+      vi.mocked(mockBridge.getScrollbackCount).mockReturnValue(100);
+      vi.mocked(mockBridge.getCols).mockReturnValue(120);
+      vi.mocked(mockBridge.getRows).mockReturnValue(40);
+      let renderFrame: FrameRequestCallback | undefined;
+      vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
+        renderFrame = cb;
+        return 1;
+      });
+      const originalSetup = Renderer.prototype.setup;
+      vi.spyOn(Renderer.prototype, "setup").mockImplementation(
+        function (cols, rows) {
+          originalSetup.call(this, cols, rows);
+          element.scrollTop = 0;
+        },
+      );
+      const render = vi.spyOn(Renderer.prototype, "render");
+      Object.defineProperty(element, "clientHeight", {
+        configurable: true,
+        value: 170,
+      });
+      Object.defineProperty(element, "scrollHeight", {
+        configurable: true,
+        value: 2210,
+      });
+
+      const term = new WTerm(element, { autoResize: false });
+      await term.init();
+      (term as unknown as { _rowHeight: number })._rowHeight = 17;
+      element.scrollTop = 600;
+      render.mockClear();
+
+      term.resize(100, 30);
+      term.resize(120, 40);
+      renderFrame?.(performance.now());
+
+      expect(render.mock.calls[0][1]?.scrollTop).toBe(600);
+      expect(element.scrollTop).toBe(600);
     });
 
     it("is a no-op before init", () => {

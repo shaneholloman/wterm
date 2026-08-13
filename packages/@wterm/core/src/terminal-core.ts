@@ -11,6 +11,12 @@ export interface CellData {
   fgRgb?: number;
   /** Resolved 24-bit background color (0xRRGGBB). Present when the core provides true color. */
   bgRgb?: number;
+  /** Resolved OSC 8 URI for this cell. */
+  linkUri?: string;
+  /** Explicit OSC 8 `id=` parameter, when provided. */
+  linkId?: string;
+  /** Opaque semantic identity used to group cells from the same OSC 8 link. */
+  linkKey?: string;
 }
 
 export interface CursorState {
@@ -24,6 +30,17 @@ export interface UnhandledSequence {
   private: string;
   paramCount: number;
   params: number[];
+}
+
+export interface HyperlinkResourceState {
+  capacity: number;
+  used: number;
+  rejected: number;
+  saturated: boolean;
+}
+
+export interface TerminalResourceState {
+  hyperlinks?: HyperlinkResourceState;
 }
 
 /**
@@ -63,6 +80,7 @@ export interface TerminalCore {
   // -- Side outputs --
   getTitle(): string | null;
   getResponse(): string | null;
+  getResourceState?(): TerminalResourceState;
 
   // -- Scrollback --
   getScrollbackCount(): number;
